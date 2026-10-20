@@ -178,8 +178,17 @@
   };
 
   Novel.prototype.present = function () {
-    this.settled = false;
     var line = this.current();
+    if (line.when && !line.when(this.state)) {
+      if (line.choices || line.goto) throw new Error('cannot skip a branching line');
+      if (this.lineIndex + 1 >= this.scenario.nodes[this.nodeId].lines.length) {
+        throw new Error('skipped the last line of ' + this.nodeId);
+      }
+      this.lineIndex += 1;
+      this.present();
+      return;
+    }
+    this.settled = false;
     if (line.apply) Branching.applyDelta(this.state, line.apply);
     if (line.applyFn) line.applyFn(this.state);
     this.syncMeters();

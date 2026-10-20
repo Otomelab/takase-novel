@@ -44,6 +44,10 @@ function walk(nodeId, state, route) {
   var lines = node.lines;
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
+    if (line.when && !line.when(state)) {
+      if (line.choices || line.goto) throw new Error('cannot skip a branching line at ' + nodeId);
+      continue;
+    }
     if (line.apply) Branching.applyDelta(state, line.apply);
     if (line.applyFn) line.applyFn(state);
     readText(line, state, nodeId + '#' + i + ' [' + route.join(' > ') + ']');
@@ -200,6 +204,10 @@ function transcript(choiceIds) {
     var node = scenario.nodes[nodeId];
     for (var i = 0; i < node.lines.length; i++) {
       var line = node.lines[i];
+      if (line.when && !line.when(state)) {
+        if (line.choices || line.goto) throw new Error('cannot skip a branching line at ' + nodeId);
+        continue;
+      }
       if (line.apply) Branching.applyDelta(state, line.apply);
       if (line.applyFn) line.applyFn(state);
       var text = typeof line.text === 'function' ? line.text(state) : line.text;
@@ -240,9 +248,29 @@ var awkwardScript = transcript(['c1_train', 'c2_pull', 'c3_leave']);
 });
 if (almostScript.indexOf('だろ') < 0) throw new Error('almost route never breaks into casual speech');
 if (almostScript.indexOf('ます') < 0) throw new Error('almost route never starts polite');
+if (almostScript.indexOf('由衣さんが決めて') < 0) throw new Error('almost invite still decides for her');
+if (almostScript.indexOf('今のは、施術じゃない。悪い') < 0) throw new Error('almost route never pulls the hand back');
+if (almostScript.indexOf('名前のないところには、行かない') < 0) throw new Error('almost route lost the named-muscle line');
+['来るだろ', '震えたまま', '止まらない', '漏らせ', '時計、どおり'].forEach(function (banned) {
+  if (almostScript.indexOf(banned) >= 0) throw new Error('almost route still contains ' + banned);
+});
+if (normalScript.indexOf('漏らせ') >= 0 || normalScript.indexOf('時計、どおり') >= 0) {
+  throw new Error('typos remain on the normal route');
+}
+if (normalScript.indexOf('時計どおり') < 0 || normalScript.indexOf('漏らしている') < 0) {
+  throw new Error('typo fixes missing on the normal route');
+}
+if (normalScript.indexOf('施術じゃない') >= 0) throw new Error('calm route showed the slip apology');
 if (awkwardScript.indexOf('c_return') >= 0 || awkwardScript.indexOf('橈骨動脈に当てる') >= 0) {
   throw new Error('awkward distance route took his pulse');
 }
+var stopScript = transcript(['c1_yield', 'c2_name', 'c_hold', 'c3_bed', 'c4_stop']);
+if (stopScript.indexOf('今のは、施術じゃない。悪い') < 0) throw new Error('stop route never pulls the hand back');
+if (stopScript.indexOf('語尾と同時に離れた') < 0) throw new Error('stop route does not release at her word');
+if (stopScript.indexOf('断られたあとに、彼は触っていない') < 0) throw new Error('stop route still reads as ignoring a no');
+['居座', '半秒、遅かった', '来るだろ', '震えたまま'].forEach(function (banned) {
+  if (stopScript.indexOf(banned) >= 0) throw new Error('stop route still contains ' + banned);
+});
 
 console.log('paths ' + routes.length);
 console.log('endings ' + JSON.stringify(counts));
@@ -253,4 +281,5 @@ routes.forEach(function (row) {
 fs.writeFileSync('/tmp/vn-transcripts.txt',
   '=== 店じまいの笑顔 ===\n' + normalScript +
   '\n\n=== 寸前 ===\n' + almostScript +
-  '\n\n=== 空いた枠 ===\n' + awkwardScript + '\n');
+  '\n\n=== 空いた枠 ===\n' + awkwardScript +
+  '\n\n=== 空いた枠（やめてください） ===\n' + stopScript + '\n');
