@@ -4,7 +4,7 @@
 // normal  … 規則が守られたまま店じまいする
 // 口調は理性の高さそのもの。80以上が丁寧語、そこから段階的にタメ口へ崩れる。
 (function (root) {
-  var FLAGS = { slip: 1, revoked: 1, pulseReturned: 1, sawBed: 1, asked: 1 };
+  var FLAGS = { slip: 1, revoked: 1, pulseReturned: 1, sawBed: 1, asked: 1, wristOff: 1 };
 
   function clamp(n, lo, hi) {
     return Math.max(lo, Math.min(hi, n));
@@ -20,8 +20,26 @@
       revoked: 0,
       pulseReturned: 0,
       sawBed: 0,
-      asked: 0
+      asked: 0,
+      wristOff: 0
     };
+  }
+
+  // 2回目。prior は1回目の終わりで、数値では動かさない。
+  function initialState2(prior) {
+    var state = initialState();
+    state.prior = prior === 'almost' || prior === 'awkward' ? prior : 'normal';
+    if (state.prior === 'almost') {
+      state.bpm = 98;
+      state.reason = 100;
+    } else if (state.prior === 'awkward') {
+      state.bpm = 74;
+      state.reason = 94;
+    } else {
+      state.bpm = 84;
+      state.reason = 88;
+    }
+    return state;
   }
 
   function applyDelta(state, delta) {
@@ -67,6 +85,18 @@
     return 'normal';
   }
 
+  // 2回目。暗転は由衣が越えたあとのみ。拒まれた掌は、語尾と同時に離れた夜として扱う。
+  function resolveSession2(state) {
+    var stayed = !!state.sawBed && !state.revoked;
+    var sheCrossed = state.cross >= 3 || !!state.pulseReturned;
+    if (stayed && sheCrossed && state.reason <= 68) return 'near';
+    if (state.revoked && (state.slip || state.prior === 'awkward')) return 'leave';
+    if (state.pulseReturned && !state.sawBed) return 'leave';
+    if (!state.sawBed && state.wall >= 4) return 'leave';
+    if (state.prior === 'awkward' && !state.sawBed && state.wall >= 2 && state.cross < 3) return 'leave';
+    return 'keep';
+  }
+
   var api = {
     FLAGS: FLAGS,
     SLIP_REASON: SLIP_REASON,
@@ -76,8 +106,10 @@
     PULSE_BPM: PULSE_BPM,
     speechBand: speechBand,
     initialState: initialState,
+    initialState2: initialState2,
     applyDelta: applyDelta,
-    resolveEnding: resolveEnding
+    resolveEnding: resolveEnding,
+    resolveSession2: resolveSession2
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
