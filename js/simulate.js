@@ -220,7 +220,8 @@ function transcript(choiceIds) {
           return item.id === id && (!item.when || item.when(state));
         })[0];
         if (!choice) throw new Error('cannot take ' + id + ' at ' + nodeId + ' bpm=' + state.bpm);
-        lines.push('選択｜' + choice.text);
+        var label = typeof choice.text === 'function' ? choice.text(state) : choice.text;
+        lines.push('選択｜' + label);
         if (choice.apply) Branching.applyDelta(state, choice.apply);
         if (choice.next === 'resolve') {
           var ending = Branching.resolveEnding(state);
@@ -356,7 +357,8 @@ function transcript2(prior, choiceIds) {
         var id = ids.shift();
         var choice = line.choices.filter(function (item) { return item.id === id; })[0];
         if (!choice) throw new Error('cannot take ' + id + ' at ' + nodeId + ' bpm=' + state.bpm + ' prior=' + prior);
-        lines.push('選択｜' + choice.text);
+        var label = typeof choice.text === 'function' ? choice.text(state) : choice.text;
+        lines.push('選択｜' + label);
         if (choice.apply) Branching.applyDelta(state, choice.apply);
         if (choice.next === 'resolve') {
           var ending = Branching.resolveSession2(state);
@@ -449,10 +451,24 @@ var openAwkward = transcript2('awkward', ['s2_work', 's2_stay', 's2_bed', 's2_so
 var nearAlmost = transcript2('almost', ['s2_easy', 's2_stay', 's2_hold', 's2_ask', 's2_soften']);
 var stopNormal = transcript2('normal', ['s2_easy', 's2_name', 's2_return', 's2_bed', 's2_stop']);
 if (openNormal.indexOf('いつもの肩甲骨') < 0) throw new Error('normal session2 lost the familiar scapula');
+if (openNormal.indexOf('甘やかしますか') < 0) throw new Error('normal opening is not a light offer');
+if (openNormal.indexOf('由衣さんが決めてください') >= 0) throw new Error('normal opening still ends on the shared consent line');
 if (openAlmost.indexOf('させていただきます') < 0 || openAlmost.indexOf('小野寺様') < 0) throw new Error('almost opening is not over-correct');
+if (openAlmost.indexOf('どこまで見るかは……由衣さん') < 0) throw new Error('almost opening does not slip to 由衣さん');
+if (openAlmost.indexOf('一拍、店の中が黙る') < 0) throw new Error('almost opening has no beat of silence');
+if (openAlmost.indexOf('失礼しました。小野寺様') < 0) throw new Error('almost opening does not correct back to 小野寺様');
 if (openAlmost.indexOf('俺') >= 0) throw new Error('stiff almost route broke into 俺');
 if (openAwkward.indexOf('ご無沙汰') < 0 || openAwkward.indexOf('空いた週') < 0) throw new Error('awkward opening lost the gap');
+if (openAwkward.indexOf('肩甲骨、見ますか') < 0 || openAwkward.indexOf('返事は、待ちます') < 0) throw new Error('awkward opening does not ask once and wait');
+if (openAwkward.indexOf('由衣さんが決めてください') >= 0) throw new Error('awkward opening still ends on the shared consent line');
 if (openNormal === openAlmost || openAlmost === openAwkward || openNormal === openAwkward) throw new Error('openings are not distinct');
+[null, 'keep', 'near', 'leave'].forEach(function (ending) {
+  var secret = scenario2.notes(Branching.initialState2('almost'), ending).secretNote;
+  if (secret.indexOf('小野寺様が由衣さんまで落ちた') < 0) throw new Error('almost chart misses the self-catch at ' + ending);
+});
+if (scenario2.notes(Branching.initialState2('normal'), null).secretNote.indexOf('由衣さんまで落ちた') >= 0) {
+  throw new Error('normal chart recorded the almost slip');
+}
 if (nearAlmost.indexOf('照明が落ちる') < 0) throw new Error('near ending does not go dark');
 if (stopNormal.indexOf('語尾と同時に離れた') < 0) throw new Error('refusal does not release the hand');
 ['肩甲骨', '小胸筋', '大円筋', '橈骨動脈'].forEach(function (term) {

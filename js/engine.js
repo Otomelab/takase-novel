@@ -356,7 +356,7 @@
       button.type = 'button';
       button.className = 'choice';
       button.dataset.choice = choice.id;
-      button.textContent = choice.text;
+      button.textContent = typeof choice.text === 'function' ? choice.text(self.state) : choice.text;
       button.addEventListener('click', function (event) {
         event.stopPropagation();
         novelSound.tap();
@@ -371,7 +371,8 @@
     if (choice.apply) Branching.applyDelta(this.state, choice.apply);
     if (choice.applyFn) choice.applyFn(this.state);
     this.syncMeters();
-    this.history.push({ speaker: '由衣', text: '（' + choice.text + '）' });
+    var label = typeof choice.text === 'function' ? choice.text(this.state) : choice.text;
+    this.history.push({ speaker: '由衣', text: '（' + label + '）' });
     this.goto(choice.next);
   };
 
