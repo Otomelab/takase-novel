@@ -288,6 +288,7 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  overflow: auto;
   padding: 28px 22px calc(env(safe-area-inset-bottom, 0px) + 36px);
   background:
     linear-gradient(180deg, rgba(5, 4, 8, 0.1), rgba(5, 4, 8, 0.78)),
@@ -330,6 +331,35 @@ button { cursor: pointer; }
   font-size: 12px;
   line-height: 1.6;
 }
+#saved-night {
+  margin: 10px 0 0;
+  color: var(--gold);
+  font-family: var(--gothic);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.night2 {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.night2 p {
+  margin: 0;
+  font-family: var(--gothic);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+.night2 button {
+  border-radius: 999px;
+  border: 1px solid rgba(232, 196, 154, 0.45);
+  background: rgba(8, 6, 10, 0.55);
+  padding: 8px 12px;
+  font-family: var(--gothic);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
 
 #card {
   display: flex;
@@ -338,12 +368,14 @@ button { cursor: pointer; }
   padding: 24px 22px calc(env(safe-area-inset-bottom, 0px) + 28px);
   background: rgba(6, 5, 8, 0.78);
 }
-#card[data-ending="almost"] { background: rgba(40, 8, 16, 0.82); }
-#card[data-ending="awkward"] { background: rgba(10, 12, 16, 0.88); }
+#card[data-ending="almost"],
+#card[data-ending="near"] { background: rgba(40, 8, 16, 0.82); }
+#card[data-ending="awkward"],
+#card[data-ending="leave"] { background: rgba(10, 12, 16, 0.88); }
 #card h2 { font-size: 34px; }
 #card-stats { font-family: var(--gothic); color: var(--gold); letter-spacing: 0.04em; }
 #card .row { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-#card-chart, #card-title {
+#card-chart, #card-title, #card-next {
   border-radius: 999px;
   padding: 12px;
   font-family: var(--gothic);

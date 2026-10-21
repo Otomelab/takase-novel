@@ -79,7 +79,13 @@
     });
     document.getElementById('btn-start').addEventListener('click', function () {
       novelSound.ensure();
-      self.start();
+      self.startSession1();
+    });
+    document.getElementById('night2').addEventListener('click', function (event) {
+      var button = event.target.closest('button[data-prior]');
+      if (!button) return;
+      novelSound.ensure();
+      self.startSession2(button.getAttribute('data-prior'));
     });
     this.btnSound.addEventListener('click', function (event) {
       event.stopPropagation();
@@ -110,7 +116,11 @@
       self.openChart();
     });
     document.getElementById('card-retry').addEventListener('click', function () {
-      self.start();
+      if (self.scenario.session === 2) self.startSession2(self.state.prior);
+      else self.startSession1();
+    });
+    document.getElementById('card-next').addEventListener('click', function () {
+      if (self.endingId) self.startSession2(self.endingId);
     });
     document.getElementById('card-title').addEventListener('click', function () {
       self.toTitle();
@@ -125,10 +135,35 @@
     });
   };
 
-  Novel.prototype.start = function () {
+  var NIGHT_LABEL = { normal: '店じまいの笑顔', almost: '寸前', awkward: '空いた枠' };
+  var NIGHT_KEY = 'slot016.night1';
+
+  function readNight() {
+    try {
+      var value = localStorage.getItem(NIGHT_KEY);
+      if (value === 'normal' || value === 'almost' || value === 'awkward') return value;
+    } catch (error) { /* 保存できない環境では、タイトルの選択だけで進む */ }
+    return '';
+  }
+
+  function writeNight(value) {
+    if (value !== 'normal' && value !== 'almost' && value !== 'awkward') return;
+    try { localStorage.setItem(NIGHT_KEY, value); } catch (error) { /* 同上 */ }
+  }
+
+  Novel.prototype.refreshTitle = function () {
+    var saved = readNight();
+    var slot = document.getElementById('saved-night');
+    if (!slot) return;
+    slot.textContent = saved
+      ? '保存された1回目：' + NIGHT_LABEL[saved]
+      : '1回目の記録は、まだありません';
+  };
+
+  Novel.prototype.begin = function (state) {
     this.clearTimers();
-    this.state = Branching.initialState();
-    this.lastReason = this.state.reason;
+    this.state = state;
+    this.lastReason = state.reason;
     this.history = [];
     this.endingId = null;
     this.auto = false;
@@ -142,7 +177,20 @@
     this.root.dataset.ending = '';
     var chart = document.getElementById('chart');
     if (chart) chart.remove();
+    this.syncMeters();
     this.goto(this.scenario.start);
+  };
+
+  Novel.prototype.startSession1 = function () {
+    this.scenario = window.SCENARIO;
+    this.begin(Branching.initialState());
+  };
+
+  Novel.prototype.startSession2 = function (prior) {
+    if (prior !== 'normal' && prior !== 'almost' && prior !== 'awkward') prior = readNight() || 'normal';
+    writeNight(prior);
+    this.scenario = window.SCENARIO2;
+    this.begin(Branching.initialState2(prior));
   };
 
   Novel.prototype.toTitle = function () {
@@ -152,6 +200,7 @@
     this.title.hidden = false;
     this.root.classList.add('is-title');
     this.fade.classList.remove('is-on');
+    this.refreshTitle();
   };
 
   Novel.prototype.clearTimers = function () {
@@ -164,7 +213,8 @@
 
   Novel.prototype.goto = function (id) {
     if (id === 'resolve') {
-      this.endingId = Branching.resolveEnding(this.state);
+      var resolve = this.scenario.resolveEnding || Branching.resolveEnding;
+      this.endingId = resolve(this.state);
       this.root.dataset.ending = this.endingId;
       id = this.scenario.endingNode[this.endingId];
     }
@@ -306,7 +356,7 @@
       button.type = 'button';
       button.className = 'choice';
       button.dataset.choice = choice.id;
-      button.textContent = choice.text;
+      button.textContent = typeof choice.text === 'function' ? choice.text(self.state) : choice.text;
       button.addEventListener('click', function (event) {
         event.stopPropagation();
         novelSound.tap();
@@ -321,7 +371,8 @@
     if (choice.apply) Branching.applyDelta(this.state, choice.apply);
     if (choice.applyFn) choice.applyFn(this.state);
     this.syncMeters();
-    this.history.push({ speaker: '由衣', text: '（' + choice.text + '）' });
+    var label = typeof choice.text === 'function' ? choice.text(this.state) : choice.text;
+    this.history.push({ speaker: '由衣', text: '（' + label + '）' });
     this.goto(choice.next);
   };
 
@@ -448,10 +499,12 @@
   Novel.prototype.showCard = function () {
     var info = this.scenario.endings[this.endingId];
     var state = this.state;
+    if (this.scenario.session === 1) writeNight(this.endingId);
     this.card.hidden = false;
     this.card.dataset.ending = this.endingId;
-    document.getElementById('card-kicker').textContent = info.kicker;
-    document.getElementById('card-name').textContent = info.name;
+    document.getElementById('card-kicker').textContent = typeof info.kicker === 'function' ? info.kicker(state) : info.kicker;
+    document.getElementById('card-name').textContent = typeof info.name === 'function' ? info.name(state) : info.name;
+    document.getElementById('card-next').hidden = this.scenario.session !== 1;
     document.getElementById('card-blurb').textContent = info.blurb(state);
     document.getElementById('card-stats').textContent =
       '脈 ' + state.bpm + '　理性 ' + state.reason + '　越えた ' + state.cross + '　引いた ' + state.wall;
@@ -463,5 +516,6 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     window.game = new Novel(window.SCENARIO);
+    window.game.refreshTitle();
   });
 })();

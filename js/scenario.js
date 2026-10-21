@@ -300,6 +300,7 @@
   }
 
   window.SCENARIO = {
+    session: 1,
     start: 'intro',
     endingNode: {
       normal: 'end_normal',

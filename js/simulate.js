@@ -8,7 +8,9 @@ var Branching = require('./branching.js');
 var sandbox = { window: {}, console: console, Branching: Branching };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'scenario.js'), 'utf8'), sandbox);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'scenario2.js'), 'utf8'), sandbox);
 var scenario = sandbox.window.SCENARIO;
+var scenario2 = sandbox.window.SCENARIO2;
 
 if (!scenario || !scenario.nodes[scenario.start]) {
   console.error('scenario failed to load');
@@ -218,7 +220,8 @@ function transcript(choiceIds) {
           return item.id === id && (!item.when || item.when(state));
         })[0];
         if (!choice) throw new Error('cannot take ' + id + ' at ' + nodeId + ' bpm=' + state.bpm);
-        lines.push('選択｜' + choice.text);
+        var label = typeof choice.text === 'function' ? choice.text(state) : choice.text;
+        lines.push('選択｜' + label);
         if (choice.apply) Branching.applyDelta(state, choice.apply);
         if (choice.next === 'resolve') {
           var ending = Branching.resolveEnding(state);
@@ -272,9 +275,214 @@ if (stopScript.indexOf('断られたあとに、彼は触っていない') < 0) 
   if (stopScript.indexOf(banned) >= 0) throw new Error('stop route still contains ' + banned);
 });
 
+function survey(tree, state, resolveEnding) {
+  var bucket = {};
+  var found = [];
+  function walk2(nodeId, current, route) {
+    if (route.length > 12) throw new Error('session2 route too deep ' + route.join(' > '));
+    if ((nodeId === 'pulseGate' || nodeId === 's2_pulse') && current.bpm < Branching.PULSE_BPM) {
+      throw new Error('pulse gate opened at bpm ' + current.bpm + ' via ' + route.join(' > '));
+    }
+    var node = tree.nodes[nodeId];
+    if (!node) throw new Error('missing node ' + nodeId);
+    var lines = node.lines;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.when && !line.when(current)) {
+        if (line.choices || line.goto) throw new Error('cannot skip a branching line at ' + nodeId);
+        continue;
+      }
+      if (line.apply) Branching.applyDelta(current, line.apply);
+      if (line.applyFn) line.applyFn(current);
+      var text = readText(line, current, nodeId + '#' + i + ' [' + route.join(' > ') + ']');
+      ['来るだろ', '居座', '震えたまま', '漏らせ', '時計、どおり', '半秒、遅かった'].forEach(function (banned) {
+        if (text.indexOf(banned) >= 0) throw new Error('banned 「' + banned + '」 in ' + nodeId + ': ' + text);
+      });
+      if (line.choices) {
+        var visible = line.choices.filter(function (choice) {
+          return !choice.when || choice.when(current);
+        });
+        if (!visible.length) {
+          if (!line.fallback) throw new Error('no visible choice at ' + nodeId);
+          walk2(line.fallback, current, route);
+          return;
+        }
+        visible.forEach(function (choice) {
+          if ((choice.id === 'c_return' || choice.id === 's2_return') && current.bpm < Branching.PULSE_BPM) {
+            throw new Error('pulse return offered at bpm ' + current.bpm);
+          }
+          var next = clone(current);
+          if (choice.apply) Branching.applyDelta(next, choice.apply);
+          var nextRoute = route.concat(choice.id);
+          if (choice.next === 'resolve') {
+            var ending = resolveEnding(next);
+            bucket[ending] = (bucket[ending] || 0) + 1;
+            var note = tree.notes(next, ending);
+            if (!note.secretNote || !note.publicNote) throw new Error('incomplete note ' + ending);
+            found.push({ route: nextRoute.join(' > '), ending: ending, prior: next.prior, bpm: next.bpm, reason: next.reason, secret: note.secretNote });
+            walk2(tree.endingNode[ending], next, nextRoute.concat(ending));
+          } else {
+            walk2(choice.next, next, nextRoute);
+          }
+        });
+        return;
+      }
+      if (line.goto) {
+        walk2(typeof line.goto === 'function' ? line.goto(current) : line.goto, current, route);
+        return;
+      }
+    }
+    if (nodeId.indexOf('end_') === 0 && !lines[lines.length - 1].card) throw new Error(nodeId + ' missing card');
+  }
+  walk2(tree.start, state, []);
+  return { counts: bucket, routes: found };
+}
+
+function transcript2(prior, choiceIds) {
+  var state = Branching.initialState2(prior);
+  var lines = [];
+  var guard = 0;
+  var ids = choiceIds.slice();
+  function step(nodeId) {
+    if (guard++ > 40) throw new Error('transcript2 loop');
+    var node = scenario2.nodes[nodeId];
+    for (var i = 0; i < node.lines.length; i++) {
+      var line = node.lines[i];
+      if (line.when && !line.when(state)) continue;
+      if (line.apply) Branching.applyDelta(state, line.apply);
+      if (line.applyFn) line.applyFn(state);
+      var text = typeof line.text === 'function' ? line.text(state) : line.text;
+      lines.push((line.speaker || '　') + '｜' + text);
+      if (line.choices) {
+        var id = ids.shift();
+        var choice = line.choices.filter(function (item) { return item.id === id; })[0];
+        if (!choice) throw new Error('cannot take ' + id + ' at ' + nodeId + ' bpm=' + state.bpm + ' prior=' + prior);
+        var label = typeof choice.text === 'function' ? choice.text(state) : choice.text;
+        lines.push('選択｜' + label);
+        if (choice.apply) Branching.applyDelta(state, choice.apply);
+        if (choice.next === 'resolve') {
+          var ending = Branching.resolveSession2(state);
+          lines.push('判定｜' + ending + '　脈' + state.bpm + '　理性' + state.reason + '　' + Branching.speechBand(state.reason));
+          step(scenario2.endingNode[ending]);
+        } else step(choice.next);
+        return;
+      }
+      if (line.goto) {
+        step(typeof line.goto === 'function' ? line.goto(state) : line.goto);
+        return;
+      }
+    }
+  }
+  step(scenario2.start);
+  if (ids.length) throw new Error('unused choices ' + ids.join(','));
+  return lines.join('\n');
+}
+
+['normal', 'almost', 'awkward'].forEach(function (prior) {
+  Object.keys(scenario2.nodes).forEach(function (nodeId) {
+    scenario2.nodes[nodeId].lines.forEach(function (line, index) {
+      if (line.speaker !== '高瀬') return;
+      [{}, { wall: 2 }, { cross: 1 }, { cross: 2 }, { revoked: 1 }, { slip: 1 }, { wristOff: 1 }, { pulseReturned: 1 }].forEach(function (extra) {
+        var probe = Branching.initialState2(prior);
+        Object.keys(extra).forEach(function (key) { probe[key] = extra[key]; });
+        if (line.when && !line.when(probe)) return;
+        var samples = [90, 70, 52, 30].map(function (reason) {
+          var state = Branching.initialState2(prior);
+          Object.keys(extra).forEach(function (key) { state[key] = extra[key]; });
+          state.reason = reason;
+          return typeof line.text === 'function' ? line.text(state) : line.text;
+        });
+        var where = prior + ' ' + nodeId + '#' + index + ' ' + JSON.stringify(extra);
+        function politeMark(text) {
+          return text.indexOf('です') >= 0 || text.indexOf('ます') >= 0 || text.indexOf('ください') >= 0 || text.indexOf('ません') >= 0 || text.indexOf('ました') >= 0;
+        }
+        if (!politeMark(samples[0])) throw new Error('polite missing 丁寧語 @ ' + where + ' / ' + samples[0]);
+        if (samples[1].indexOf('……') < 0) throw new Error('cracked missing break @ ' + where + ' / ' + samples[1]);
+        if (samples[2].indexOf('俺') < 0) throw new Error('mixed missing 俺 @ ' + where + ' / ' + samples[2]);
+        if (politeMark(samples[3])) throw new Error('casual still polite @ ' + where + ' / ' + samples[3]);
+        var unique = {};
+        samples.forEach(function (text) { unique[text] = 1; });
+        if (Object.keys(unique).length !== 4) throw new Error('bands collapsed @ ' + where + ' / ' + samples.join(' / '));
+      });
+    });
+  });
+});
+
+var session2 = {};
+['normal', 'almost', 'awkward'].forEach(function (prior) {
+  session2[prior] = survey(scenario2, Branching.initialState2(prior), Branching.resolveSession2);
+  ['keep', 'near', 'leave'].forEach(function (ending) {
+    if (!session2[prior].counts[ending]) throw new Error(prior + ' cannot reach ' + ending);
+  });
+});
+
+var expected2 = {
+  normal: {
+    's2_work > s2_stay > s2_bed > s2_soften': 'keep',
+    's2_easy > s2_name > s2_return > s2_bed > s2_soften': 'near',
+    's2_quiet > s2_pull > s2_leave': 'leave'
+  },
+  almost: {
+    's2_work > s2_pull > s2_bed > s2_soften': 'keep',
+    's2_easy > s2_stay > s2_hold > s2_ask > s2_soften': 'near',
+    's2_quiet > s2_pull > s2_leave': 'leave'
+  },
+  awkward: {
+    's2_work > s2_stay > s2_bed > s2_soften': 'keep',
+    's2_easy > s2_name > s2_return > s2_bed > s2_soften': 'near',
+    's2_quiet > s2_pull > s2_leave': 'leave'
+  }
+};
+Object.keys(expected2).forEach(function (prior) {
+  var byRoute = {};
+  session2[prior].routes.forEach(function (row) { byRoute[row.route] = row; });
+  Object.keys(expected2[prior]).forEach(function (route) {
+    var row = byRoute[route];
+    if (!row) throw new Error('missing ' + prior + ' ' + route);
+    if (row.ending !== expected2[prior][route]) {
+      throw new Error(prior + ' ' + route + ' → ' + row.ending + ' expected ' + expected2[prior][route] + ' ' + JSON.stringify(row));
+    }
+  });
+});
+
+var openNormal = transcript2('normal', ['s2_work', 's2_stay', 's2_bed', 's2_soften']);
+var openAlmost = transcript2('almost', ['s2_quiet', 's2_pull', 's2_leave']);
+var openAwkward = transcript2('awkward', ['s2_work', 's2_stay', 's2_bed', 's2_soften']);
+var nearAlmost = transcript2('almost', ['s2_easy', 's2_stay', 's2_hold', 's2_ask', 's2_soften']);
+var stopNormal = transcript2('normal', ['s2_easy', 's2_name', 's2_return', 's2_bed', 's2_stop']);
+if (openNormal.indexOf('いつもの肩甲骨') < 0) throw new Error('normal session2 lost the familiar scapula');
+if (openNormal.indexOf('甘やかしますか') < 0) throw new Error('normal opening is not a light offer');
+if (openNormal.indexOf('由衣さんが決めてください') >= 0) throw new Error('normal opening still ends on the shared consent line');
+if (openAlmost.indexOf('させていただきます') < 0 || openAlmost.indexOf('小野寺様') < 0) throw new Error('almost opening is not over-correct');
+if (openAlmost.indexOf('どこまで見るかは……由衣さん') < 0) throw new Error('almost opening does not slip to 由衣さん');
+if (openAlmost.indexOf('一拍、店の中が黙る') < 0) throw new Error('almost opening has no beat of silence');
+if (openAlmost.indexOf('失礼しました。小野寺様') < 0) throw new Error('almost opening does not correct back to 小野寺様');
+if (openAlmost.indexOf('俺') >= 0) throw new Error('stiff almost route broke into 俺');
+if (openAwkward.indexOf('ご無沙汰') < 0 || openAwkward.indexOf('空いた週') < 0) throw new Error('awkward opening lost the gap');
+if (openAwkward.indexOf('肩甲骨、見ますか') < 0 || openAwkward.indexOf('返事は、待ちます') < 0) throw new Error('awkward opening does not ask once and wait');
+if (openAwkward.indexOf('由衣さんが決めてください') >= 0) throw new Error('awkward opening still ends on the shared consent line');
+if (openNormal === openAlmost || openAlmost === openAwkward || openNormal === openAwkward) throw new Error('openings are not distinct');
+[null, 'keep', 'near', 'leave'].forEach(function (ending) {
+  var secret = scenario2.notes(Branching.initialState2('almost'), ending).secretNote;
+  if (secret.indexOf('小野寺様が由衣さんまで落ちた') < 0) throw new Error('almost chart misses the self-catch at ' + ending);
+});
+if (scenario2.notes(Branching.initialState2('normal'), null).secretNote.indexOf('由衣さんまで落ちた') >= 0) {
+  throw new Error('normal chart recorded the almost slip');
+}
+if (nearAlmost.indexOf('照明が落ちる') < 0) throw new Error('near ending does not go dark');
+if (stopNormal.indexOf('語尾と同時に離れた') < 0) throw new Error('refusal does not release the hand');
+['肩甲骨', '小胸筋', '大円筋', '橈骨動脈'].forEach(function (term) {
+  if (openNormal.indexOf(term) < 0) throw new Error('normal session2 never names ' + term);
+});
+
 console.log('paths ' + routes.length);
 console.log('endings ' + JSON.stringify(counts));
 console.log('canonical routes ok');
+console.log('session2 ' + JSON.stringify({
+  normal: session2.normal.counts,
+  almost: session2.almost.counts,
+  awkward: session2.awkward.counts
+}));
 routes.forEach(function (row) {
   console.log(row.ending + '\t' + row.route + '\tbpm=' + row.bpm + ' reason=' + row.reason + ' cross=' + row.cross + ' wall=' + row.wall + ' slip=' + row.slip + ' pulse=' + row.pulseReturned);
 });
